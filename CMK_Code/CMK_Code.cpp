@@ -7,11 +7,27 @@
 #include <Windows.h>
 #include <time.h>
 #include <memory.h>
+#include <minwindef.h>
+
+#include <BaseTsd.h>
+#include <WinDef.h>
+#include <WinNT.h>
+
+
+#ifdef _DEBUG
+#error It doesn't work in debug mode ! ! !
+#endif
+
+#ifdef _WIN64
+#error It doesn't work for x64 bit for now ! ! !
+#endif
+
+#define CANT_ALLOCATE_MEMORY_FOR_CODE 1001
 
 
 // MACROS
 #define GET_FUNCTION_SIZE_A(functionName) \
-    (const int)((DWORD)(void*)functionName##_end - (DWORD)(void*)functionName)
+    (const int)((DWORD64)(void*)functionName##_end - (DWORD64)(void*)functionName)
 
 #define SAVE_FUNCTION_A(functionName, functionType, buffer, key) \
 { \
@@ -60,6 +76,13 @@ GENERATE_FUNCTION_A(int, func_sum, (int a, int b));
 
 
 
+#ifdef _WIN64
+    #define AllocateMemoryForCode(size) \
+    (char*)VirtualAlloc(NULL, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)
+#else
+    #define AllocateMemoryForCode(size) \
+    (char*)malloc(size)
+#endif // _WIN64
 
 
 
@@ -73,7 +96,7 @@ GENERATE_FUNCTION_A_WITH_CODE(int, func_sum, (int a, int b),
     int result = 0;
     switch (rand() % 4)
     {
-        //case 0: result = sub_summ_obs(a, b); break;//return FUNC_SUM_A(a, b); // a + 1 - b * 2 - 1 + b * 3;
+        //case 0: result = FUNC_SUM_A(a, b); break;//return FUNC_SUM_A(a, b); // a + 1 - b * 2 - 1 + b * 3;
         case 0: result = sub_summ_obs_A(a, b); break; // a + 1 - b * 2 - 1 + b * 3;
         case 1: result = FUNC_SUM_B(a, b); break; //2 + a + 5 - b * 4 - 1 + b * 5 - 6;
         case 2: result = FUNC_SUM_C(a, b); break;//a * 2 - a + b;
@@ -97,11 +120,15 @@ int summ_obs(int a, int b)
     int result;
     int(*_summ) (int a, int b);
     
+
     static char* buff = 0;
     if (!buff)
     {
-        buff = malloc(GET_FUNCTION_SIZE_A(func_sum));
-        
+        const int size = GET_FUNCTION_SIZE_A(func_sum);
+        buff = AllocateMemoryForCode(size);
+        if (!buff)
+            exit(CANT_ALLOCATE_MEMORY_FOR_CODE);
+
         SAVE_FUNCTION_A(func_sum,
             int(*) (int a, int b),
             buff,
@@ -114,6 +141,7 @@ int summ_obs(int a, int b)
         buff, _summ,
         KEY_FOR_FUNC_SUM);
 
+    // TODO : Crash in x64
     result = _summ(a, b);
 
     UNLOAD_FUNCTION_A(func_sum, buff, KEY_FOR_FUNC_SUM);
@@ -135,8 +163,10 @@ int sub_summ_obs_A(int a, int b)
     static char* buff = 0;
     if (!buff)
     {
-        buff = malloc(GET_FUNCTION_SIZE_A(simpleSumm));
-
+        const int size = GET_FUNCTION_SIZE_A(simpleSumm);
+        buff = AllocateMemoryForCode(size);
+        if (!buff)
+            exit(CANT_ALLOCATE_MEMORY_FOR_CODE);
         SAVE_FUNCTION_A(simpleSumm,
             int(*) (int a, int b),
             buff,
@@ -149,6 +179,9 @@ int sub_summ_obs_A(int a, int b)
         buff, _summ,
         KEY_FOR_FUNC_SUM);
 
+    //LPVOID allocatedMem = VirtualAlloc(NULL, GET_FUNCTION_SIZE_A(simpleSumm), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    //BOOL protect = VirtualProtect(_summ, GET_FUNCTION_SIZE_A(simpleSumm), PAGE_EXECUTE_READWRITE, NULL);
+    //BOOL free = VirtualFree(allocatedMem, NULL, MEM_RELEASE);
     result = _summ(a, b);
 
     UNLOAD_FUNCTION_A(simpleSumm, buff, KEY_FOR_FUNC_SUM);
@@ -168,9 +201,10 @@ void testTime( int(*fun)(int a, int b) )
     time_t beginTime, endTime, elapsed;
     
     beginTime = time(0);
-    for (int k = 0; k < 1024 * 8; k++)
+    const int TIME_LENGTH = 1;
+    for (int k = 0; k < 1024 * TIME_LENGTH; k++)
     {
-        for (int i = 0; i < 1024 * 8; i++)
+        for (int i = 0; i < 1024 * TIME_LENGTH; i++)
         {
             result = fun(i, i * 3 - 1);
             //printf("Answear for %d + %d is %d     [ %s ]\n", i, i * 3 - 1, result, result == (i + i * 3 - 1) ? "TRUE" : "FALSE");
